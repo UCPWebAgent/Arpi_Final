@@ -8,6 +8,7 @@ import MediaPage from './pages/MediaPage'
 import SummaryPage from './pages/SummaryPage'
 import SearchPage from './pages/SearchPage'
 import { MediaProvider } from './context/mediaStore'
+import { OrderProvider } from './context/orderStore'
 
 Framework7.use(Framework7React)
 
@@ -29,9 +30,11 @@ const f7params = {
 export default function ArpiApp() {
   return (
     <App {...f7params}>
-      <MediaProvider>
-        <View main url="/" />
-      </MediaProvider>
+      <OrderProvider>
+        <MediaProvider>
+          <View main url="/" />
+        </MediaProvider>
+      </OrderProvider>
     </App>
   )
 }

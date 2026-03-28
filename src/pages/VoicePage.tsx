@@ -17,6 +17,8 @@ import {
 } from 'framework7-react'
 import { VoiceLoop, VoiceLoopState } from '../lib/voiceLoop'
 import { PersonaEngine, PERSONA_NAMES, type PersonaId } from '../lib/personaEngine'
+import { extractFromTranscript } from '../lib/structuredExtraction'
+import { useOrder } from '../context/orderStore'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,6 +79,11 @@ export default function VoicePage({ f7route }: VoicePageProps) {
   // Keep lang accessible inside callbacks without re-binding them
   const langRef    = useRef<Lang>('en')
 
+  // Order store — use a ref so the VoiceLoop closure always sees latest actions
+  const orderCtx = useOrder()
+  const orderRef = useRef(orderCtx)
+  orderRef.current = orderCtx
+
   // ── Sync langRef whenever lang state changes ─────────────────────────────
 
   useEffect(() => {
@@ -110,21 +117,42 @@ export default function VoicePage({ f7route }: VoicePageProps) {
         }
 
         // 2. Persona detection + Armenian normalization
-        const result = personaRef.current.detect(text)
+        const persona = personaRef.current.detect(text)
 
-        // 3. Arpi's Phase-3 stub reply → received bubble
-        //    (Phase 4 replaces this text with a real LLM response)
-        const arpiStub =
-          result.normalizedText !== text
-            ? `[${result.personaName}] Understood: "${result.normalizedText}"`
-            : `[${result.personaName}] Got it — LLM response wires up in Phase 4.`
+        // 3. Structured extraction on the normalized text
+        const extraction = extractFromTranscript(persona.normalizedText)
+        const { patchVehicle, addPart, setSymptoms, getOrder } = orderRef.current
+
+        if (extraction.hasVehicleData) {
+          patchVehicle(sessionId, extraction.vehicle)
+        }
+        for (const p of extraction.parts) {
+          addPart(sessionId, { name: p.name, quantity: p.quantity, confirmed: false })
+        }
+        if (extraction.symptomFragments.length > 0) {
+          const existing = getOrder(sessionId).symptoms
+          const joined   = extraction.symptomFragments.join(' ')
+          setSymptoms(sessionId, existing ? `${existing} ${joined}` : joined)
+        }
+
+        // 4. Arpi's acknowledgement bubble (LLM reply wires in Phase 6)
+        const extracted: string[] = []
+        if (extraction.vehicle.year)  extracted.push(extraction.vehicle.year)
+        if (extraction.vehicle.make)  extracted.push(extraction.vehicle.make)
+        if (extraction.vehicle.model) extracted.push(extraction.vehicle.model)
+        if (extraction.vehicle.engine) extracted.push(extraction.vehicle.engine)
+        extraction.parts.forEach(p => extracted.push(`${p.name} ×${p.quantity}`))
+
+        const arpiText = extracted.length > 0
+          ? `[${persona.personaName}] Got it — added: ${extracted.join(', ')}`
+          : `[${persona.personaName}] Got it — tap the clipboard to review your order.`
 
         const arpiMsg: ChatMessage = {
           id: crypto.randomUUID(),
-          text: arpiStub,
+          text: arpiText,
           type: 'received',
           name: 'Arpi',
-          personaId: result.personaId,
+          personaId: persona.personaId,
           first: true,
           last: true,
           tail: true,
@@ -206,7 +234,7 @@ export default function VoicePage({ f7route }: VoicePageProps) {
         <NavTitle>Arpi</NavTitle>
 
         <NavRight>
-          <Segmented strong tag="div" style={{ width: 100, marginRight: 8 }}>
+          <Segmented strong tag="div" style={{ width: 100, marginRight: 6 }}>
             <Button active={lang === 'en'} small onClick={() => handleLangChange('en')}>
               EN
             </Button>
@@ -214,6 +242,12 @@ export default function VoicePage({ f7route }: VoicePageProps) {
               HY
             </Button>
           </Segmented>
+          <Link
+            iconF7="doc_text"
+            iconSize={22}
+            style={{ marginRight: 8 }}
+            onClick={() => f7.views.main.router.navigate(`/summary/${sessionId}`)}
+          />
         </NavRight>
       </Navbar>
 
