@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+:root {
+  --f7-theme-color: #ef4444;
+  --f7-theme-color-rgb: 239, 68, 68;
+  --f7-theme-color-shade: #dc2626;
+  --f7-theme-color-tint: #f87171;
+}
+
+/* Mic listening state — pulse glow on the icon link */
+.mic-listening .icon {
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.55; transform: scale(1.18); }
+}
+
+/* Tabbar label color inherits link color in listening state */
+.mic-listening .tabbar-label {
+  color: #ef4444;
+}
