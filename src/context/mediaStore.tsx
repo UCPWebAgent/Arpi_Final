@@ -1,8 +1,11 @@
-// mediaStore.tsx — session-scoped media context
-// Stores photo and video items keyed by sessionId.
-// Object URLs are revoked when items are removed to prevent memory leaks.
+// mediaStore.tsx — session-scoped media context with Supabase persistence
+// Object URLs (blob://…) are device-local and are NOT stored in Supabase.
+// Only the thumbnail data URL + metadata is persisted so SearchPage can show
+// thumbnails for orders loaded from a previous session.
 
-import { createContext, useCallback, useContext, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { supabase } from '../lib/supabase'
+import { useAuth } from './authStore'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,7 +15,7 @@ export interface MediaItem {
   id: string
   sessionId: string
   type: MediaType
-  objectUrl: string   // blob URL of the original file
+  objectUrl: string   // blob URL of the original file (device-local, ephemeral)
   thumbnail: string   // same as objectUrl for photos; dataURL for videos
   mimeType: string
   timestamp: number
@@ -35,12 +38,33 @@ const MediaContext = createContext<MediaContextValue | null>(null)
 
 export function MediaProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<MediaItem[]>([])
-  // Track which objectUrls have been created so we only revoke our own
-  const ownUrls = useRef<Set<string>>(new Set())
+  const ownUrls           = useRef<Set<string>>(new Set())
+  const { mechanic }      = useAuth()
+
+  // Stable ref so addItem callback always sees the current mechanic
+  const mechanicRef = useRef(mechanic)
+  useEffect(() => { mechanicRef.current = mechanic }, [mechanic])
+
+  // Clear local items on logout
+  useEffect(() => {
+    if (!mechanic) setItems([])
+  }, [mechanic])
 
   const addItem = useCallback((item: MediaItem) => {
     ownUrls.current.add(item.objectUrl)
     setItems(prev => [...prev, item])
+
+    const m = mechanicRef.current
+    if (m) {
+      supabase.from('media').insert({
+        id:         item.id,
+        session_id: item.sessionId,
+        store_id:   m.storeId,
+        type:       item.type,
+        thumbnail:  item.thumbnail || null,
+        mime_type:  item.mimeType  || null,
+      }).then(({ error }) => { if (error) console.error('media.insert:', error) })
+    }
   }, [])
 
   const removeItem = useCallback((id: string) => {
@@ -52,6 +76,13 @@ export function MediaProvider({ children }: { children: React.ReactNode }) {
       }
       return prev.filter(i => i.id !== id)
     })
+
+    if (mechanicRef.current) {
+      supabase.from('media')
+        .delete()
+        .eq('id', id)
+        .then(({ error }) => { if (error) console.error('media.delete:', error) })
+    }
   }, [])
 
   const getBySession = useCallback(

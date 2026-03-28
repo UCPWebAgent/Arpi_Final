@@ -19,6 +19,7 @@ import { VoiceLoop, VoiceLoopState } from '../lib/voiceLoop'
 import { PersonaEngine, PERSONA_NAMES, type PersonaId } from '../lib/personaEngine'
 import { extractFromTranscript } from '../lib/structuredExtraction'
 import { useOrder } from '../context/orderStore'
+import { useAuth }  from '../context/authStore'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,8 +67,11 @@ interface VoicePageProps {
 
 export default function VoicePage({ f7route }: VoicePageProps) {
   const { sessionId } = f7route.params
+  const { mechanic }  = useAuth()
 
-  const [lang, setLang]           = useState<Lang>('en')
+  // Initialize language from the mechanic's stored preference (en or hy only)
+  const defaultLang: Lang = mechanic?.languagePreference === 'hy' ? 'hy' : 'en'
+  const [lang, setLang]           = useState<Lang>(defaultLang)
   const [micState, setMicState]   = useState<MicState>('idle')
   const [messages, setMessages]   = useState<ChatMessage[]>([])
   // Interim (partial) transcript shown live while user is speaking

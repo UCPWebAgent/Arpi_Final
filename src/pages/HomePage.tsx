@@ -1,8 +1,14 @@
-import { Page, Navbar, Block, Button, BlockTitle, f7 } from 'framework7-react'
+import { Page, Navbar, NavRight, Link, Block, Button, BlockTitle, f7 } from 'framework7-react'
+import { useAuth }  from '../context/authStore'
+import { useOrder } from '../context/orderStore'
 
 export default function HomePage() {
-  const startVoiceSession = () => {
+  const { mechanic, logout }  = useAuth()
+  const { createSession }     = useOrder()
+
+  const startVoiceSession = async () => {
     const sessionId = crypto.randomUUID()
+    await createSession(sessionId)
     f7.views.main.router.navigate(`/voice/${sessionId}`)
   }
 
@@ -12,10 +18,14 @@ export default function HomePage() {
 
   return (
     <Page name="home">
-      <Navbar title="Arpi" subtitle="AI Auto Parts Clerk" />
+      <Navbar title="Arpi" subtitle={mechanic ? mechanic.name : ''}>
+        <NavRight>
+          <Link onClick={logout} iconF7="square_arrow_right" tooltip="Sign out" />
+        </NavRight>
+      </Navbar>
 
       <Block className="text-center mt-8">
-        <div className="text-6xl mb-4">🔧</div>
+        <div style={{ fontSize: 56 }} className="mb-4">🔧</div>
         <BlockTitle large>Welcome to Arpi</BlockTitle>
         <p className="text-gray-500 mb-8">
           Your bilingual AI auto parts counter clerk.
@@ -39,7 +49,7 @@ export default function HomePage() {
           color="red"
           onClick={goToSearch}
         >
-          Search Parts
+          Search Orders
         </Button>
       </Block>
     </Page>
