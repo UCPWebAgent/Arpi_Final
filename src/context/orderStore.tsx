@@ -24,6 +24,7 @@ export interface PartItem {
 
 export interface OrderData {
   sessionId: string
+  createdAt: number
   vehicle: Partial<VehicleInfo>
   vehicleConfirmed: boolean
   symptoms: string
@@ -56,6 +57,7 @@ export function isReviewReady(order: OrderData): boolean {
 function blankOrder(sessionId: string): OrderData {
   return {
     sessionId,
+    createdAt: Date.now(),
     vehicle: { year: '', make: '', model: '', engine: '' },
     vehicleConfirmed: false,
     symptoms: '',
@@ -68,6 +70,8 @@ function blankOrder(sessionId: string): OrderData {
 // ─── Context ─────────────────────────────────────────────────────────────────
 
 interface OrderContextValue {
+  /** All orders across all sessions, in insertion order. */
+  allOrders: OrderData[]
   getOrder(sessionId: string): OrderData
   /** Merge new vehicle fields in. Any update resets vehicleConfirmed. */
   patchVehicle(sessionId: string, patch: Partial<VehicleInfo>): void
@@ -174,9 +178,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     [mutate],
   )
 
+  const allOrders = Object.values(store)
+
   return (
     <OrderContext.Provider
       value={{
+        allOrders,
         getOrder, patchVehicle, setVehicleField, setVehicleConfirmed,
         addPart, updatePart, removePart, setSymptoms, setUrgency, setNotes,
       }}
