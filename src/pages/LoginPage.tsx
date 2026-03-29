@@ -1,16 +1,6 @@
-// LoginPage.tsx — mechanic email/password login
-// Rendered by AuthGate when no authenticated session exists.
+// LoginPage.tsx — mechanic email/password login (plain HTML form)
 
 import { useState } from 'react'
-import {
-  Page,
-  Navbar,
-  List,
-  ListInput,
-  ListButton,
-  BlockFooter,
-  Block,
-} from 'framework7-react'
 import { useAuth } from '../context/authStore'
 
 export default function LoginPage() {
@@ -20,7 +10,8 @@ export default function LoginPage() {
   const [error, setError]       = useState<string | null>(null)
   const [busy, setBusy]         = useState(false)
 
-  const handleLogin = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
     const trimmedEmail = email.trim()
     if (!trimmedEmail || !password) {
       setError('Email and password are required.')
@@ -28,51 +19,100 @@ export default function LoginPage() {
     }
     setBusy(true)
     setError(null)
-    const err = await login(trimmedEmail, password)
-    if (err) {
-      setError(err)
+    try {
+      const err = await login(trimmedEmail, password)
+      if (err) {
+        console.error('[LoginPage] login error:', err)
+        setError(err)
+        setBusy(false)
+      }
+    } catch (ex) {
+      console.error('[LoginPage] unexpected error:', ex)
+      setError(String(ex))
       setBusy(false)
     }
-    // On success, AuthProvider updates mechanic → AuthGate re-renders the app.
-    // No explicit navigation needed.
   }
 
   return (
-    <Page name="login">
-      <Navbar title="Arpi" subtitle="AI Auto Parts Clerk" />
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: '#f5f5f5',
+    }}>
+      <div style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '40px 32px',
+        width: '100%',
+        maxWidth: 360,
+        boxShadow: '0 2px 16px rgba(0,0,0,0.1)',
+        textAlign: 'center',
+      }}>
+        <div style={{ fontSize: 56, marginBottom: 8 }}>🔧</div>
+        <h2 style={{ margin: '0 0 4px', fontSize: 22 }}>Arpi</h2>
+        <p style={{ margin: '0 0 24px', color: '#888', fontSize: 14 }}>AI Auto Parts Clerk</p>
 
-      <Block className="text-center mt-6 mb-2">
-        <div style={{ fontSize: 56 }}>🔧</div>
-      </Block>
+        <form onSubmit={handleSubmit}>
+          <input
+            type="email"
+            placeholder="mechanic@store.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            disabled={busy}
+            style={{
+              display: 'block',
+              width: '100%',
+              padding: '10px 12px',
+              marginBottom: 12,
+              border: '1px solid #ddd',
+              borderRadius: 8,
+              fontSize: 15,
+              boxSizing: 'border-box',
+            }}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            disabled={busy}
+            style={{
+              display: 'block',
+              width: '100%',
+              padding: '10px 12px',
+              marginBottom: 16,
+              border: '1px solid #ddd',
+              borderRadius: 8,
+              fontSize: 15,
+              boxSizing: 'border-box',
+            }}
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            style={{
+              display: 'block',
+              width: '100%',
+              padding: '11px',
+              background: busy ? '#aaa' : '#e53935',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              fontSize: 16,
+              fontWeight: 600,
+              cursor: busy ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {busy ? 'Signing in…' : 'Sign In'}
+          </button>
+        </form>
 
-      <List form inset>
-        <ListInput
-          label="Email"
-          type="email"
-          placeholder="mechanic@store.com"
-          value={email}
-          onInput={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
-          clearButton
-        />
-        <ListInput
-          label="Password"
-          type="password"
-          placeholder="Password"
-          value={password}
-          onInput={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
-        />
-        <ListButton
-          title={busy ? 'Signing in…' : 'Sign In'}
-          color="red"
-          onClick={busy ? undefined : handleLogin}
-        />
-      </List>
-
-      {error && (
-        <BlockFooter>
-          <span style={{ color: 'var(--f7-color-red)' }}>{error}</span>
-        </BlockFooter>
-      )}
-    </Page>
+        {error && (
+          <p style={{ marginTop: 16, color: '#e53935', fontSize: 14 }}>{error}</p>
+        )}
+      </div>
+    </div>
   )
 }

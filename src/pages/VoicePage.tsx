@@ -20,6 +20,7 @@ import { PersonaEngine, PERSONA_NAMES, type PersonaId } from '../lib/personaEngi
 import { extractFromTranscript } from '../lib/structuredExtraction'
 import { useOrder } from '../context/orderStore'
 import { useAuth }  from '../context/authStore'
+import { supabase }  from '../lib/supabase'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,10 +84,37 @@ export default function VoicePage({ f7route }: VoicePageProps) {
   // Keep lang accessible inside callbacks without re-binding them
   const langRef    = useRef<Lang>('en')
 
+  // Stable ref so the VoiceLoop closure always sees the current mechanic
+  const mechanicRef = useRef(mechanic)
+  useEffect(() => { mechanicRef.current = mechanic }, [mechanic])
+
   // Order store — use a ref so the VoiceLoop closure always sees latest actions
   const orderCtx = useOrder()
   const orderRef = useRef(orderCtx)
   orderRef.current = orderCtx
+
+  // ── Load persisted messages from Supabase on mount ──────────────────────
+
+  useEffect(() => {
+    supabase
+      .from('messages')
+      .select('id, role, text')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) { console.error('messages.load:', error); return }
+        if (!data || data.length === 0) return
+        setMessages(data.map((row: any) => ({
+          id:    row.id,
+          text:  row.text,
+          type:  row.role === 'user' ? ('sent' as const) : ('received' as const),
+          name:  row.role === 'assistant' ? 'Arpi' : undefined,
+          first: true,
+          last:  true,
+          tail:  true,
+        })))
+      })
+  }, [sessionId])
 
   // ── Sync langRef whenever lang state changes ─────────────────────────────
 
@@ -163,6 +191,15 @@ export default function VoicePage({ f7route }: VoicePageProps) {
         }
 
         setMessages(prev => [...prev, mechanicMsg, arpiMsg])
+
+        // Persist both messages to Supabase
+        const m = mechanicRef.current
+        if (m) {
+          supabase.from('messages').insert([
+            { id: mechanicMsg.id, session_id: sessionId, store_id: m.storeId, role: 'user',      text },
+            { id: arpiMsg.id,     session_id: sessionId, store_id: m.storeId, role: 'assistant', text: arpiText },
+          ]).then(({ error }) => { if (error) console.error('messages.insert:', error) })
+        }
       },
 
       onStateChange(state: VoiceLoopState) {

@@ -206,12 +206,16 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const createSession = useCallback(async (sessionId: string) => {
     const m = mechanicRef.current
     if (!m) return
-    const { error } = await supabase.from('sessions').insert({
-      id:          sessionId,
-      store_id:    m.storeId,
-      mechanic_id: m.id,
-    })
-    if (error) console.error('createSession:', error)
+    try {
+      const { error } = await supabase.from('sessions').insert({
+        id:          sessionId,
+        store_id:    m.storeId,
+        mechanic_id: m.id,
+      })
+      if (error) console.error('createSession:', error)
+    } catch (err) {
+      console.error('createSession threw:', err)
+    }
   }, [])
 
   const patchVehicle = useCallback(

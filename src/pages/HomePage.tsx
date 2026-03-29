@@ -6,9 +6,9 @@ export default function HomePage() {
   const { mechanic, logout }  = useAuth()
   const { createSession }     = useOrder()
 
-  const startVoiceSession = async () => {
+  const startVoiceSession = () => {
     const sessionId = crypto.randomUUID()
-    await createSession(sessionId)
+    createSession(sessionId)   // fire-and-forget — do not block navigation
     f7.views.main.router.navigate(`/voice/${sessionId}`)
   }
 
