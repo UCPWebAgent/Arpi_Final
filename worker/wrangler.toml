@@ -1,0 +1,7 @@
+name = "arpi-worker"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Non-secret config vars go here.
+# Set PRODUCTION_ORIGIN after your first deploy so CORS allows your live domain:
+#   wrangler secret put PRODUCTION_ORIGIN

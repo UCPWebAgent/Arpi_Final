@@ -21,6 +21,7 @@ import { extractFromTranscript } from '../lib/structuredExtraction'
 import { useOrder } from '../context/orderStore'
 import { useAuth }  from '../context/authStore'
 import { supabase }  from '../lib/supabase'
+import { askClaude, textToSpeech, type ClaudeMessage } from '../lib/apiClient'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,42 @@ function toMicState(s: VoiceLoopState): MicState {
   return 'idle'
 }
 
+// ─── Claude system prompt ─────────────────────────────────────────────────────
+
+function buildSystemPrompt(lang: Lang, replyStyle: string): string {
+  return `You are Arpi, a bilingual AI auto parts counter clerk at an Armenian-American mechanic shop. You help mechanics identify and order the right parts.
+
+${replyStyle}
+
+Rules — follow these strictly:
+- Keep every reply to 1–2 short sentences. This is a voice interface; no lists, no markdown.
+- Confirm the vehicle and part info when the mechanic provides it.
+- If vehicle year, make, or model is missing, ask for exactly the missing field.
+- If a part name is missing, ask for it by name.
+- Never invent part numbers, prices, or availability.
+- When you have vehicle AND at least one part confirmed, tell the mechanic to review the order.
+- Current language preference: ${lang === 'hy' ? 'Armenian (respond in Armenian)' : 'English'}.`
+}
+
+// ─── Audio playback helper ────────────────────────────────────────────────────
+
+function playAudio(buffer: ArrayBuffer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const ctx = new AudioContext()
+    ctx.decodeAudioData(
+      buffer,
+      decoded => {
+        const source = ctx.createBufferSource()
+        source.buffer = decoded
+        source.connect(ctx.destination)
+        source.onended = () => { ctx.close(); resolve() }
+        source.start(0)
+      },
+      err => { ctx.close(); reject(err) },
+    )
+  })
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface VoicePageProps {
@@ -92,6 +129,10 @@ export default function VoicePage({ f7route }: VoicePageProps) {
   const orderCtx = useOrder()
   const orderRef = useRef(orderCtx)
   orderRef.current = orderCtx
+
+  // Messages ref — keeps the chat history accessible inside the VoiceLoop closure
+  const messagesRef = useRef<ChatMessage[]>([])
+  useEffect(() => { messagesRef.current = messages }, [messages])
 
   // ── Load persisted messages from Supabase on mount ──────────────────────
 
@@ -167,39 +208,76 @@ export default function VoicePage({ f7route }: VoicePageProps) {
           setSymptoms(sessionId, existing ? `${existing} ${joined}` : joined)
         }
 
-        // 4. Arpi's acknowledgement bubble (LLM reply wires in Phase 6)
-        const extracted: string[] = []
-        if (extraction.vehicle.year)  extracted.push(extraction.vehicle.year)
-        if (extraction.vehicle.make)  extracted.push(extraction.vehicle.make)
-        if (extraction.vehicle.model) extracted.push(extraction.vehicle.model)
-        if (extraction.vehicle.engine) extracted.push(extraction.vehicle.engine)
-        extraction.parts.forEach(p => extracted.push(`${p.name} ×${p.quantity}`))
+        // 4. Show mechanic's message immediately, then call Claude + ElevenLabs async
+        setMessages(prev => [...prev, mechanicMsg])
 
-        const arpiText = extracted.length > 0
-          ? `[${persona.personaName}] Got it — added: ${extracted.join(', ')}`
-          : `[${persona.personaName}] Got it — tap the clipboard to review your order.`
-
-        const arpiMsg: ChatMessage = {
-          id: crypto.randomUUID(),
-          text: arpiText,
-          type: 'received',
-          name: 'Arpi',
-          personaId: persona.personaId,
-          first: true,
-          last: true,
-          tail: true,
-        }
-
-        setMessages(prev => [...prev, mechanicMsg, arpiMsg])
-
-        // Persist both messages to Supabase
         const m = mechanicRef.current
         if (m) {
           supabase.from('messages').insert([
-            { id: mechanicMsg.id, session_id: sessionId, store_id: m.storeId, role: 'user',      text },
-            { id: arpiMsg.id,     session_id: sessionId, store_id: m.storeId, role: 'assistant', text: arpiText },
-          ]).then(({ error }) => { if (error) console.error('messages.insert:', error) })
+            { id: mechanicMsg.id, session_id: sessionId, store_id: m.storeId, role: 'user', text },
+          ]).then(({ error }) => { if (error) console.error('messages.insert user:', error) })
         }
+
+        // Lock mic while Claude + TTS runs (state → 'locked' → shows Preloader)
+        loopRef.current?.lockForTTS()
+
+        ;(async () => {
+          try {
+            // Build conversation history for Claude from current chat state
+            const history: ClaudeMessage[] = messagesRef.current.map(msg => ({
+              role: msg.type === 'sent' ? 'user' : 'assistant',
+              content: msg.text,
+            }))
+            history.push({ role: 'user', content: persona.normalizedText })
+
+            // Call Claude for Arpi's reply
+            const arpiText = await askClaude(
+              buildSystemPrompt(langRef.current, persona.replyStyle),
+              history,
+            )
+
+            const arpiMsg: ChatMessage = {
+              id: crypto.randomUUID(),
+              text: arpiText,
+              type: 'received',
+              name: 'Arpi',
+              personaId: persona.personaId,
+              first: true,
+              last: true,
+              tail: true,
+            }
+            setMessages(prev => [...prev, arpiMsg])
+
+            // Persist Arpi's message
+            if (m) {
+              supabase.from('messages').insert([
+                { id: arpiMsg.id, session_id: sessionId, store_id: m.storeId, role: 'assistant', text: arpiText },
+              ]).then(({ error }) => { if (error) console.error('messages.insert assistant:', error) })
+            }
+
+            // Speak via ElevenLabs
+            const audioBuffer = await textToSpeech(arpiText, langRef.current)
+            await playAudio(audioBuffer)
+
+          } catch (err) {
+            console.error('[Arpi]', err)
+            setMessages(prev => [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                text: '⚠️ Could not reach Arpi\'s brain. Check Worker is running.',
+                type: 'received' as const,
+                name: 'Arpi',
+                first: true,
+                last: true,
+                tail: true,
+              },
+            ])
+          } finally {
+            // Always unlock so the mic can be re-armed
+            loopRef.current?.unlockAfterTTS()
+          }
+        })()
       },
 
       onStateChange(state: VoiceLoopState) {
